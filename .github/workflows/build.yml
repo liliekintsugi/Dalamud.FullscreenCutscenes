@@ -38,11 +38,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Dalamud.FullscreenCutscenes
-          path: Dalamud.FullscreenCutscenes/bin/Release/Dalamud.FullscreenCutscenes/
+          path: Dalamud.FullscreenCutscenes/bin/Release/UltrawideCutscenes/
 
       - name: Create release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: Dalamud.FullscreenCutscenes/bin/Release/Dalamud.FullscreenCutscenes/*
+          files: Dalamud.FullscreenCutscenes/bin/Release/UltrawideCutscenes/*
           generate_release_notes: true
