@@ -34,15 +34,26 @@ jobs:
       - name: Build
         run: dotnet build Dalamud.FullscreenCutscenes/Dalamud.FullscreenCutscenes.csproj -c Release --no-restore -p:IsCI=true
 
+      - name: Collect release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-files
+          Get-ChildItem -Recurse -Path Dalamud.FullscreenCutscenes/bin -Include "*.zip","*.json" | ForEach-Object {
+            Write-Host "Found: $($_.FullName)"
+            Copy-Item $_.FullName release-files/
+          }
+          Write-Host "--- release-files contents ---"
+          Get-ChildItem release-files/
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: Dalamud.FullscreenCutscenes
-          path: Dalamud.FullscreenCutscenes/bin/Release/UltrawideCutscenes/
+          path: release-files/
 
       - name: Create release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: Dalamud.FullscreenCutscenes/bin/Release/UltrawideCutscenes/*
+          files: release-files/*
           generate_release_notes: true
