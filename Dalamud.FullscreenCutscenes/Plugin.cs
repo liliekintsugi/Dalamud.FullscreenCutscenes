@@ -1,99 +1,87 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 using Dalamud.Game.Command;
-using Dalamud.Plugin;
-using Dalamud.Game;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Hooking;
+using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 
-namespace Dalamud.FullscreenCutscenes
+namespace Dalamud.FullscreenCutscenes;
+
+public sealed class Plugin : IDalamudPlugin
 {
-    public sealed class Plugin : IDalamudPlugin
+    private const string CommandName = "/pcutscenes";
+
+    private delegate nint UpdateLetterboxingDelegate(nint thisPtr);
+
+    private readonly IDalamudPluginInterface _pluginInterface;
+    private readonly ICommandManager _commandManager;
+    private readonly ICondition _condition;
+    private readonly Configuration _config;
+    private readonly Hook<UpdateLetterboxingDelegate>? _updateLetterboxingHook;
+
+    public Plugin(
+        IDalamudPluginInterface pluginInterface,
+        ICommandManager commandManager,
+        ISigScanner sigScanner,
+        IGameInteropProvider gameInteropProvider,
+        ICondition condition)
     {
-        public string Name => "Ultrawide Cutscenes";
+        _pluginInterface = pluginInterface;
+        _commandManager = commandManager;
+        _condition = condition;
 
-        private const string commandName = "/pcutscenes";
+        _config = _pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
 
-        private delegate nint UpdateLetterboxingDelegate(nint thisPtr);
-
-        private Hook<UpdateLetterboxingDelegate>? updateLetterboxingHook;
-
-        private IDalamudPluginInterface PluginInterface { get; init; }
-        private ICommandManager CommandManager { get; init; }   
-        private Configuration Configuration { get; init; }
-        private ICondition Condition { get; init; }
-        private IPluginLog PluginLog { get; init; }
-        public Plugin(
-             IDalamudPluginInterface pluginInterface,
-             ICommandManager commandManager,
-             ISigScanner targetScanner,
-             IGameInteropProvider gameInteropProvider,
-             ICondition condition,
-             IPluginLog pluginLog)
+        _commandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            this.PluginInterface = pluginInterface;
-            this.CommandManager = commandManager;
-            this.Condition = condition;
-            this.PluginLog = pluginLog;
+            HelpMessage = "/pcutscenes : active/désactive le plugin\n/pcutscenes true|false : force l'état"
+        });
 
-            this.Configuration = this.PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
-            this.Configuration.Initialize(this.PluginInterface);
-
-            // you might normally want to embed resources and load them from the manifest stream
-            //this.PluginUi = new PluginUI(this.Configuration, goatImage);
-
-            this.CommandManager.AddHandler(commandName, new CommandInfo(OnCommand)
-            {
-                HelpMessage = "/pcutscenes: Toggle the plugin on/off\n/pcutscenes true|false: manually set the plugin state"
-            });
-
-            if (targetScanner.TryScanText("E8 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8B 8B ?? ?? ?? ??", out var ptr))
-            {
-                this.updateLetterboxingHook = gameInteropProvider.HookFromAddress<UpdateLetterboxingDelegate>(ptr, UpdateLetterboxingDetour);
-                this.updateLetterboxingHook.Enable();
-            }
-
-            //this.PluginInterface.UiBuilder.Draw += DrawUI;
-            //this.PluginInterface.UiBuilder.OpenConfigUi += DrawConfigUI;
+        if (sigScanner.TryScanText("E8 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8B 8B ?? ?? ?? ??", out var ptr))
+        {
+            _updateLetterboxingHook = gameInteropProvider.HookFromAddress<UpdateLetterboxingDelegate>(ptr, UpdateLetterboxingDetour);
+            _updateLetterboxingHook.Enable();
         }
 
-        private unsafe nint UpdateLetterboxingDetour(nint thisptr)
-        {
-            bool isWatchingCutscene = Condition[ConditionFlag.OccupiedInCutSceneEvent] ||
-                                      Condition[ConditionFlag.WatchingCutscene78];
-            if (this.Configuration.IsEnabled && isWatchingCutscene)
-            {
-                SomeConfig* config = (SomeConfig*) thisptr;
-                config->ShouldLetterBox &= ~(1 << 5);
-            }
+        _pluginInterface.UiBuilder.OpenMainUi += ToggleEnabled;
+    }
 
-            return this.updateLetterboxingHook!.Original(thisptr);
-        }
-
-        public void Dispose()
+    private unsafe nint UpdateLetterboxingDetour(nint thisPtr)
+    {
+        if (_config.IsEnabled &&
+            (_condition[ConditionFlag.OccupiedInCutSceneEvent] || _condition[ConditionFlag.WatchingCutscene78]))
         {
-            this.updateLetterboxingHook?.Dispose();
-            this.CommandManager.RemoveHandler(commandName);
+            ((SomeConfig*)thisPtr)->ShouldLetterBox &= ~(1 << 5);
         }
+        return _updateLetterboxingHook!.Original(thisPtr);
+    }
 
-        private void OnCommand(string command, string args)
-        {
-            if (!string.IsNullOrWhiteSpace(args) && bool.TryParse(args, out var val))
-            {
-                this.Configuration.IsEnabled = val;
-            }
-            else
-            {
-                this.Configuration.IsEnabled = !this.Configuration.IsEnabled;
-            }
+    private void ToggleEnabled()
+    {
+        _config.IsEnabled = !_config.IsEnabled;
+        _pluginInterface.SavePluginConfig(_config);
+    }
 
-            this.Configuration.Save();
-        }
-        
-        [StructLayout(LayoutKind.Explicit)]
-        public partial struct SomeConfig
-        {
-            [FieldOffset(0x40)] public int ShouldLetterBox;
-        }
+    private void OnCommand(string command, string args)
+    {
+        if (!string.IsNullOrWhiteSpace(args) && bool.TryParse(args, out var val))
+            _config.IsEnabled = val;
+        else
+            _config.IsEnabled = !_config.IsEnabled;
+
+        _pluginInterface.SavePluginConfig(_config);
+    }
+
+    public void Dispose()
+    {
+        _pluginInterface.UiBuilder.OpenMainUi -= ToggleEnabled;
+        _updateLetterboxingHook?.Dispose();
+        _commandManager.RemoveHandler(CommandName);
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    public partial struct SomeConfig
+    {
+        [FieldOffset(0x40)] public int ShouldLetterBox;
     }
 }
