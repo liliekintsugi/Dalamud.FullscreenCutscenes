@@ -38,11 +38,21 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force release-files
-          Get-ChildItem -Recurse -Path Dalamud.FullscreenCutscenes/bin -Include "*.zip","*.json" | ForEach-Object {
+          $releasePath = "Dalamud.FullscreenCutscenes/bin/Release"
+          if (!(Test-Path $releasePath)) {
+            Write-Error "Release build output not found at $releasePath"
+            exit 1
+          }
+          Get-ChildItem -Recurse -Path $releasePath -Include "*.zip","*.json" | ForEach-Object {
             Write-Host "Found: $($_.FullName)"
             Copy-Item $_.FullName release-files/
           }
-          Write-Host "--- release-files contents ---"
+          $count = (Get-ChildItem release-files/).Count
+          if ($count -eq 0) {
+            Write-Error "No release files collected"
+            exit 1
+          }
+          Write-Host "--- release-files contents ($count files) ---"
           Get-ChildItem release-files/
 
       - name: Upload artifact

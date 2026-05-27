@@ -15,6 +15,7 @@ public sealed class Plugin : IDalamudPlugin
 
     private readonly IDalamudPluginInterface _pluginInterface;
     private readonly ICommandManager _commandManager;
+    private readonly IPluginLog _log;
     private readonly ICondition _condition;
     private readonly Configuration _config;
     private readonly Hook<UpdateLetterboxingDelegate>? _updateLetterboxingHook;
@@ -24,11 +25,13 @@ public sealed class Plugin : IDalamudPlugin
         ICommandManager commandManager,
         ISigScanner sigScanner,
         IGameInteropProvider gameInteropProvider,
-        ICondition condition)
+        ICondition condition,
+        IPluginLog log)
     {
         _pluginInterface = pluginInterface;
         _commandManager = commandManager;
         _condition = condition;
+        _log = log;
 
         _config = _pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
 
@@ -37,10 +40,21 @@ public sealed class Plugin : IDalamudPlugin
             HelpMessage = "/pcutscenes : active/désactive le plugin\n/pcutscenes true|false : force l'état"
         });
 
-        if (sigScanner.TryScanText("E8 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8B 8B ?? ?? ?? ??", out var ptr))
+        try
         {
-            _updateLetterboxingHook = gameInteropProvider.HookFromAddress<UpdateLetterboxingDelegate>(ptr, UpdateLetterboxingDetour);
-            _updateLetterboxingHook.Enable();
+            if (sigScanner.TryScanText("E8 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8B 8B ?? ?? ?? ??", out var ptr))
+            {
+                _updateLetterboxingHook = gameInteropProvider.HookFromAddress<UpdateLetterboxingDelegate>(ptr, UpdateLetterboxingDetour);
+                _updateLetterboxingHook.Enable();
+            }
+            else
+            {
+                _log.Warning("[UltrawideCutscenes] Signature scan failed — letterbox removal inactive");
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "[UltrawideCutscenes] Failed to initialize hook");
         }
 
         _pluginInterface.UiBuilder.OpenMainUi += ToggleEnabled;
@@ -48,18 +62,21 @@ public sealed class Plugin : IDalamudPlugin
 
     private unsafe nint UpdateLetterboxingDetour(nint thisPtr)
     {
+        if (_updateLetterboxingHook is null)
+            return 0;
+
         if (_config.IsEnabled &&
             (_condition[ConditionFlag.OccupiedInCutSceneEvent] || _condition[ConditionFlag.WatchingCutscene78]))
         {
             ((SomeConfig*)thisPtr)->ShouldLetterBox &= ~(1 << 5);
         }
-        return _updateLetterboxingHook!.Original(thisPtr);
+        return _updateLetterboxingHook.Original(thisPtr);
     }
 
     private void ToggleEnabled()
     {
         _config.IsEnabled = !_config.IsEnabled;
-        _pluginInterface.SavePluginConfig(_config);
+        SaveConfig();
     }
 
     private void OnCommand(string command, string args)
@@ -69,7 +86,19 @@ public sealed class Plugin : IDalamudPlugin
         else
             _config.IsEnabled = !_config.IsEnabled;
 
-        _pluginInterface.SavePluginConfig(_config);
+        SaveConfig();
+    }
+
+    private void SaveConfig()
+    {
+        try
+        {
+            _pluginInterface.SavePluginConfig(_config);
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "[UltrawideCutscenes] Failed to save config");
+        }
     }
 
     public void Dispose()
