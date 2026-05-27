@@ -3,7 +3,7 @@
   <PropertyGroup>
     <Authors>goat, Maple, liliekintsugi</Authors>
     <AssemblyName>UltrawideCutscenes</AssemblyName>
-    <Version>1.0.6.0</Version>
+    <Version>1.0.7.0</Version>
     <Description>Removes letterboxing during cutscenes on ultrawide monitors.</Description>
     <PackageProjectUrl>https://github.com/liliekintsugi/Dalamud.FullscreenCutscenes</PackageProjectUrl>
   </PropertyGroup>
