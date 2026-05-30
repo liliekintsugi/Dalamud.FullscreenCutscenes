@@ -61,6 +61,36 @@ jobs:
           name: Dalamud.FullscreenCutscenes
           path: release-files/
 
+      - name: Verify repo.json version sync
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $manifestPath = Get-ChildItem -Recurse release-files -Filter "UltrawideCutscenes.json" | Select-Object -First 1
+          if (-not $manifestPath) {
+            Write-Error "UltrawideCutscenes.json not found in release-files"
+            exit 1
+          }
+          $manifest = Get-Content $manifestPath.FullName | ConvertFrom-Json
+          $repoJson = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/liliekintsugi/xivdash-connect/main/repo.json"
+          $entry = $repoJson | Where-Object { $_.InternalName -eq "UltrawideCutscenes" } | Select-Object -First 1
+          if (-not $entry) {
+            Write-Error "UltrawideCutscenes entry not found in xivdash-connect repo.json"
+            exit 1
+          }
+          if ($entry.AssemblyVersion -ne $manifest.AssemblyVersion) {
+            Write-Error @"
+          repo.json is out of sync!
+            Release manifest: $($manifest.AssemblyVersion)
+            repo.json entry:  $($entry.AssemblyVersion)
+
+          Update xivdash-connect/repo.json before installing from Dalamud.
+          The daily sync workflow will catch up, or run it manually:
+          https://github.com/liliekintsugi/xivdash-connect/actions/workflows/sync-ultrawide-repo.yml
+          "@
+            exit 1
+          }
+          Write-Host "repo.json version OK: $($manifest.AssemblyVersion)"
+
       - name: Create release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3.0.0
